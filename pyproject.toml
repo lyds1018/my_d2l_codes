@@ -17,7 +17,8 @@ dependencies = [
     "torchinfo>=1.8.0",
     "onnxscript>=0.5.6",
     "scikit-learn>=1.7.2",
-    "xgboost>=3.1.2",
+    "xgboost==1.6",
+    "optuna>=4.6.0",
 ]
 
 [tool.uv.sources]
