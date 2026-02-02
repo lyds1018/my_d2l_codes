@@ -24,7 +24,7 @@ test_transform = transforms.Compose(
 # 3. 创建数据集和数据加载器
 train_dataset = ImageDataset(csv_file="data/train.csv", img_path="data")
 test_dataset = ImageDataset(
-    csv_file="data/test.csv", img_path="data", transform=test_transform, indexed=True
+    csv_file="data/test.csv", img_path="data", transform=test_transform, index=True
 )
 
 test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False)

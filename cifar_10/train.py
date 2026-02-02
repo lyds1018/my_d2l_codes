@@ -1,30 +1,37 @@
 import os
 
-import timm
 import torch
 import torch.nn as nn
-import torchvision.transforms as transforms
+import torch.nn.functional as F
+import torchvision.transforms as T
 from data_set import ImageDataset
 from torch.utils.data import DataLoader, random_split
 from tqdm import tqdm
 
 basedir = os.path.dirname(os.path.abspath(__file__))
 
-# 1. 定义数据增强
-train_transform = transforms.Compose(
+
+# 1. 定义数据增广
+train_transform = T.Compose(
     [
-        transforms.Resize((224, 224)),
-        transforms.RandomHorizontalFlip(),
-        transforms.ToTensor(),
-        transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
+        T.RandomCrop(32, padding=4),
+        T.RandomHorizontalFlip(),
+        T.RandAugment(num_ops=2, magnitude=4),
+        T.ToTensor(),
+        T.Normalize(
+            (0.4914, 0.4822, 0.4465),
+            (0.2023, 0.1994, 0.2010),
+        ),
     ]
 )
 
-test_transform = transforms.Compose(
+test_transform = T.Compose(
     [
-        transforms.Resize((224, 224)),
-        transforms.ToTensor(),
-        transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
+        T.ToTensor(),
+        T.Normalize(
+            (0.4914, 0.4822, 0.4465),
+            (0.2023, 0.1994, 0.2010),
+        ),
     ]
 )
 
@@ -32,8 +39,9 @@ test_transform = transforms.Compose(
 # 2. 创建数据集
 dataset = ImageDataset(
     csv_file=os.path.join(basedir, "data/train.csv"),
-    img_path=os.path.join(basedir, "data"),
+    img_path=os.path.join(basedir, "data/train"),
 )
+
 test_ratio = 0.2
 test_size = int(len(dataset) * test_ratio)
 train_size = len(dataset) - test_size
@@ -41,25 +49,67 @@ generator = torch.Generator().manual_seed(42)
 train_dataset, test_dataset = random_split(
     dataset, [train_size, test_size], generator=generator
 )
+
 train_dataset.dataset.transform = train_transform
 test_dataset.dataset.transform = test_transform
 
 
 # 3. 定义卷积神经网络
-class MyCNN(nn.Module):
-    def __init__(self, num_classes):
+class ResBlock(nn.Module):
+    def __init__(self, in_c, out_c, stride=1):
         super().__init__()
-        self.resnet = timm.create_model("resnext50_32x4d", pretrained=True)
-        in_features = self.resnet.fc.in_features
-        self.resnet.fc = nn.Sequential(
-            nn.Linear(in_features, 256),
-            nn.ReLU(),
-            nn.Dropout(0.5),
-            nn.Linear(256, num_classes),
-        )
+
+        self.conv1 = nn.Conv2d(in_c, out_c, 3, stride, 1, bias=False)
+        self.bn1 = nn.BatchNorm2d(out_c)
+
+        self.conv2 = nn.Conv2d(out_c, out_c, 3, 1, 1, bias=False)
+        self.bn2 = nn.BatchNorm2d(out_c)
+
+        if stride != 1 or in_c != out_c:
+            self.shortcut = nn.Sequential(
+                nn.Conv2d(in_c, out_c, 1, stride, bias=False), nn.BatchNorm2d(out_c)
+            )
+        else:
+            self.shortcut = nn.Identity()
 
     def forward(self, x):
-        return self.resnet(x)
+        y = F.relu(self.bn1(self.conv1(x)))
+        y = self.bn2(self.conv2(y))
+        y += self.shortcut(x)
+        return F.relu(y)
+
+
+class ResNet18(nn.Module):
+    def __init__(self):
+        super().__init__()
+
+        # CIFAR: 3×32×32
+        self.conv = nn.Sequential(
+            nn.Conv2d(3, 64, 3, 1, 1, bias=False), nn.BatchNorm2d(64), nn.ReLU()
+        )
+
+        # 4 stages × 2 blocks
+        self.layer1 = nn.Sequential(ResBlock(64, 64), ResBlock(64, 64))
+
+        self.layer2 = nn.Sequential(ResBlock(64, 128, 2), ResBlock(128, 128))
+
+        self.layer3 = nn.Sequential(ResBlock(128, 256, 2), ResBlock(256, 256))
+
+        self.layer4 = nn.Sequential(ResBlock(256, 512, 2), ResBlock(512, 512))
+
+        self.fc = nn.Linear(512, 10)
+
+    def forward(self, x):
+        x = self.conv(x)
+        x = self.layer1(x)
+        x = self.layer2(x)
+        x = self.layer3(x)
+        x = self.layer4(x)
+
+        x = F.adaptive_avg_pool2d(x, 1)
+        x = x.view(x.size(0), -1)
+
+        return self.fc(x)
 
 
 # 4. 训练模型
@@ -69,7 +119,7 @@ def train_model(model, criterion, optimizer, scheduler, batch_size, num_epochs):
         train_dataset,
         batch_size=batch_size,
         shuffle=True,
-        num_workers=12,
+        num_workers=1,
         pin_memory=True,
         persistent_workers=True,
     )
@@ -77,7 +127,7 @@ def train_model(model, criterion, optimizer, scheduler, batch_size, num_epochs):
         test_dataset,
         batch_size=batch_size,
         shuffle=False,
-        num_workers=12,
+        num_workers=1,
         pin_memory=True,
         persistent_workers=True,
     )
@@ -103,6 +153,7 @@ def train_model(model, criterion, optimizer, scheduler, batch_size, num_epochs):
             loss.backward()
             optimizer.step()
             running_loss += loss.item() * images.size(0)
+        scheduler.step()
         running_loss = running_loss / len(train_loader.dataset)
 
         # 在测试集上评估模型
@@ -116,7 +167,6 @@ def train_model(model, criterion, optimizer, scheduler, batch_size, num_epochs):
                 test_loss += loss.item() * images.size(0)
 
         test_loss = test_loss / len(test_loader.dataset)
-        scheduler.step(test_loss)
 
         print(f"Train Loss: {running_loss:.4f}")
         print(f"Test Loss: {test_loss:.4f}")
@@ -135,14 +185,16 @@ def train_model(model, criterion, optimizer, scheduler, batch_size, num_epochs):
 
 if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    num_epochs, lr, batch_size, weight_decay = 50, 1e-4, 128, 1e-5
+    num_epochs, lr, batch_size, weight_decay = 200, 1e-4, 128, 1e-5
     num_classes = len(dataset.label2idx)
 
-    model = MyCNN(num_classes=num_classes).to(device)
+    model = ResNet18().to(device)
     criterion = nn.CrossEntropyLoss()
-    optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer, mode="min", factor=0.3, patience=4, threshold=1e-3
+    optimizer = torch.optim.SGD(
+        model.parameters(), lr=lr, momentum=0.9, weight_decay=weight_decay
+    )
+    scheduler = torch.optim.lr_scheduler.MultiStepLR(
+        optimizer, milestones=[100, 150], gamma=0.1
     )
 
     train_model(

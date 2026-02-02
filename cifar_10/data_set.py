@@ -28,17 +28,17 @@ class ImageDataset(Dataset):
 
     def __getitem__(self, idx):
         # 图片文件夹 + 图片文件名
-        img_path = os.path.join(self.img_path, self.df.iloc[idx]["image"])
+        img_path = os.path.join(self.img_path, f"{self.df.iloc[idx]['id']}.png")
 
         if self.index:
             label = self.df.iloc[idx]["label_idx"]
-
             image = Image.open(img_path).convert("RGB")
 
             if self.transform:
                 image = self.transform(image)
 
             return image, torch.tensor(label, dtype=torch.long)
+
         else:
             image = Image.open(img_path).convert("RGB")
 
