@@ -5,8 +5,6 @@ import torch
 from PIL import Image
 from torch.utils.data import Dataset
 
-basedir = os.path.dirname(os.path.abspath(__file__))
-
 
 class ImageDataset(Dataset):
     def __init__(self, csv_file, img_path, transform=None, index=True):

@@ -16,7 +16,7 @@ train_transform = T.Compose(
     [
         T.RandomCrop(32, padding=4),
         T.RandomHorizontalFlip(),
-        T.RandAugment(num_ops=2, magnitude=4),
+        T.RandAugment(num_ops=2, magnitude=9),
         T.ToTensor(),
         T.Normalize(
             (0.4914, 0.4822, 0.4465),
@@ -38,20 +38,31 @@ test_transform = T.Compose(
 
 # 2. 创建数据集
 dataset = ImageDataset(
-    csv_file=os.path.join(basedir, "data/train.csv"),
-    img_path=os.path.join(basedir, "data/train"),
+    csv_file=os.path.join(basedir, "data", "train.csv"),
+    img_path=os.path.join(basedir, "data", "train"),
 )
 
-test_ratio = 0.2
-test_size = int(len(dataset) * test_ratio)
-train_size = len(dataset) - test_size
+train_size = int(0.8 * len(dataset))
+test_size = len(dataset) - train_size
+
 generator = torch.Generator().manual_seed(42)
-train_dataset, test_dataset = random_split(
-    dataset, [train_size, test_size], generator=generator
+train_idx, test_idx = random_split(
+    range(len(dataset)), [train_size, test_size], generator=generator
 )
 
-train_dataset.dataset.transform = train_transform
-test_dataset.dataset.transform = test_transform
+train_dataset = ImageDataset(
+    csv_file=os.path.join(basedir, "data", "train.csv"),
+    img_path=os.path.join(basedir, "data", "train"),
+    transform=train_transform,
+)
+test_dataset = ImageDataset(
+    csv_file=os.path.join(basedir, "data", "train.csv"),
+    img_path=os.path.join(basedir, "data", "train"),
+    transform=test_transform,
+)
+
+train_dataset = torch.utils.data.Subset(train_dataset, train_idx)
+test_dataset = torch.utils.data.Subset(test_dataset, test_idx)
 
 
 # 3. 定义卷积神经网络
@@ -97,6 +108,8 @@ class ResNet18(nn.Module):
 
         self.layer4 = nn.Sequential(ResBlock(256, 512, 2), ResBlock(512, 512))
 
+        self.dropout = nn.Dropout(0.5)
+
         self.fc = nn.Linear(512, 10)
 
     def forward(self, x):
@@ -108,6 +121,7 @@ class ResNet18(nn.Module):
 
         x = F.adaptive_avg_pool2d(x, 1)
         x = x.view(x.size(0), -1)
+        x = self.dropout(x)
 
         return self.fc(x)
 
@@ -119,7 +133,7 @@ def train_model(model, criterion, optimizer, scheduler, batch_size, num_epochs):
         train_dataset,
         batch_size=batch_size,
         shuffle=True,
-        num_workers=1,
+        num_workers=12,
         pin_memory=True,
         persistent_workers=True,
     )
@@ -127,7 +141,7 @@ def train_model(model, criterion, optimizer, scheduler, batch_size, num_epochs):
         test_dataset,
         batch_size=batch_size,
         shuffle=False,
-        num_workers=1,
+        num_workers=12,
         pin_memory=True,
         persistent_workers=True,
     )
@@ -177,7 +191,7 @@ def train_model(model, criterion, optimizer, scheduler, batch_size, num_epochs):
             best_score = current_score
             best_epoch = epoch + 1
             torch.save(
-                model.state_dict(), os.path.join(basedir, "model/best_model.pth")
+                model.state_dict(), os.path.join(basedir, "model", "best_model.pth")
             )
 
     print(f"最优模型，Epoch: {best_epoch}, Test Loss: {best_score:.4f}")
@@ -185,17 +199,15 @@ def train_model(model, criterion, optimizer, scheduler, batch_size, num_epochs):
 
 if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    num_epochs, lr, batch_size, weight_decay = 200, 1e-4, 128, 1e-5
+    num_epochs, lr, batch_size, weight_decay = 200, 0.1, 256, 5e-4
     num_classes = len(dataset.label2idx)
 
     model = ResNet18().to(device)
-    criterion = nn.CrossEntropyLoss()
+    criterion = nn.CrossEntropyLoss(label_smoothing=0.1)
     optimizer = torch.optim.SGD(
         model.parameters(), lr=lr, momentum=0.9, weight_decay=weight_decay
     )
-    scheduler = torch.optim.lr_scheduler.MultiStepLR(
-        optimizer, milestones=[100, 150], gamma=0.1
-    )
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=num_epochs)
 
     train_model(
         model,
