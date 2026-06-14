@@ -20,6 +20,8 @@ dependencies = [
     "xgboost==1.6",
     "optuna>=4.6.0",
     "timm>=1.0.22",
+    "tensorflow>=2.21.0",
+    "scikit-image>=0.25.2",
 ]
 
 [tool.uv.sources]

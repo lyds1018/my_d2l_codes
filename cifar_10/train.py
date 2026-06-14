@@ -65,7 +65,7 @@ train_dataset = torch.utils.data.Subset(train_dataset, train_idx)
 test_dataset = torch.utils.data.Subset(test_dataset, test_idx)
 
 
-# 3. 定义卷积神经网络
+# 3. 构建卷积神经网络
 class ResBlock(nn.Module):
     def __init__(self, in_c, out_c, stride=1):
         super().__init__()
@@ -147,7 +147,7 @@ def train_model(model, criterion, optimizer, scheduler, batch_size, num_epochs):
     )
 
     # 训练模型
-    device = next(model.parameters()).device  # 获取模型所在设备
+    device = next(model.parameters()).device
     alpha = 0.8  # 测试损失权重
     best_score = float("inf")
     best_epoch = -1
@@ -199,7 +199,7 @@ def train_model(model, criterion, optimizer, scheduler, batch_size, num_epochs):
 
 if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    num_epochs, lr, batch_size, weight_decay = 200, 0.1, 256, 5e-4
+    num_epochs, lr, batch_size, weight_decay = 100, 1e-3, 256, 5e-4
     num_classes = len(dataset.label2idx)
 
     model = ResNet18().to(device)

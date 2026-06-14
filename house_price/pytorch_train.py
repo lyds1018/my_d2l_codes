@@ -18,7 +18,7 @@ loss = nn.MSELoss()
 in_features = X_train.shape[1]
 
 
-# 模型
+# 全连接神经网络
 def get_net():
     net = nn.Sequential(
         nn.Linear(in_features, 512), nn.ReLU(), nn.Dropout(0.2), nn.Linear(512, 1)
@@ -155,9 +155,7 @@ def train_and_save(
 
 if __name__ == "__main__":
     # 超参数设置
-    k, num_epochs, lr, weight_decay, batch_size = 5, 100, 0.1, 25, 256
-
-    """
+    k, num_epochs, lr, weight_decay, batch_size = 5, 100, 1e-1, 1e-1, 256
     # 进行K折交叉验证
     train_l, valid_l = k_fold(
         k, X_train, y_train, num_epochs, lr, weight_decay, batch_size
@@ -166,8 +164,8 @@ if __name__ == "__main__":
         f"\n{k}折验证: 平均训练log rmse: {float(train_l):f}, "
         f"平均验证log rmse: {float(valid_l):f}"
     )
-    """
 
+    '''
     # 训练并保存最终模型
     train_and_save(
         X_train,
@@ -177,3 +175,4 @@ if __name__ == "__main__":
         weight_decay,
         batch_size,
     )
+    '''
